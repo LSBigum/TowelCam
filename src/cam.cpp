@@ -161,14 +161,12 @@ int main(int argc, char const *argv[]) try
         // imageParams_.img = image;
         imshow(window_name, image);
         setMouseCallback(window_name, mouse_callback, &pt); 
-        std::cout << "Test1" << std::endl;
         // if (firstRun)
         waitKey(0);
 
         out.open("../result.txt", std::ios::app);
         if (newCoords)
         {
-            std::cout << "Test2" << std::endl;
             distance = data.get_depth_frame().get_distance(pt.x, pt.y);
             pt3d.x = pt.x;
             pt3d.y = pt.y;
@@ -195,7 +193,6 @@ int main(int argc, char const *argv[]) try
         }
         out.close();
         firstRun = false;
-        std::cout << "Test3" << std::endl;
 
         std::string filenameD = "/home/laus/uni/thesis/cam/Test/images/depth" + std::to_string(i) + ".png";
         std::string filenameC = "/home/laus/uni/thesis/cam/Test/images/color" + std::to_string(i) + ".png";
@@ -209,9 +206,7 @@ int main(int argc, char const *argv[]) try
 
         i++;
         
-        // waitKey(0);
         destroyAllWindows();
-        std::cout << "Test4" << std::endl;
     }
 
     return EXIT_SUCCESS;
