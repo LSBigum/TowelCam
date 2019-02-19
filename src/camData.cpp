@@ -40,13 +40,6 @@ bool saveFrameRawData(const std::string& filename, rs2::frame frame);
 //void metadata_to_csv(const rs2::frame& frm, const int x, const int y, const float z, const int i);
 void mouse_callback(int event, int  x, int  y, int  flag, void *param)
 {
-    // if (event == EVENT_LBUTTONDOWN)
-    // {
-    //     imageParams *imageParams_ = (imageParams *)param;
-    //     Mat &img = imageParams_->img;
-    //     imageParams_->newCoords = true;
-    //     // imageParams_->pt = Point(x, y);
-    // }
     if (event == EVENT_LBUTTONDOWN)
     {
         // Store point coordinates
