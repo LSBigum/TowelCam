@@ -15,7 +15,6 @@
 #include <stdlib.h> 
 #include <netinet/in.h> 
 #include <thread>
-#include <vector>
 // 3rd party header for writing png files
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -27,18 +26,14 @@ using namespace cv;
 
 
 Mat frame;
-// Point3d pt3d(-1,-1,-1);
+Point3d pt3d(-1,-1,-1);
 bool newCoords = false;
 
-struct imageParams
-{
-    float x1;
-    float y1;
-    float z1;
-    float x2;
-    float y2;
-    float z2;
-};
+// struct imageParams
+// {
+//     Mat img;
+//     bool newCoords = false;
+// };
 
 float get_depth_scale(rs2::device dev);
 rs2_stream find_stream_to_align(const std::vector<rs2::stream_profile>& streams);
@@ -52,18 +47,11 @@ void mouse_callback(int event, int  x, int  y, int  flag, void *param)
     if (event == EVENT_LBUTTONDOWN)
     {
         // Store point coordinates
-        std::vector<Point2i> *pt = static_cast<std::vector<Point2i> *>(param);
-        pt->at(0).x = x;
-        pt->at(0).y = y;
+        Point* pt = (Point*)param;
+        pt->x = x;
+        pt->y = y;
         newCoords = true;
-    }
-    if (event == EVENT_LBUTTONUP)
-    {
-        std::vector<Point2i> *pt = static_cast<std::vector<Point2i> *>(param);
-        pt->at(1).x = x;
-        pt->at(1).y = y;
-        std::cout << pt->at(0).x << ", " << pt->at(0).y << ", " << pt->at(1).x << ", " << pt->at(0).y << std::endl;
-        newCoords = true;
+        std::cout << *pt << std::endl;
     }
 }
 
@@ -135,11 +123,7 @@ int main(int argc, char const *argv[]) try
     // //set the callback function for any mouse event
     // cv::setMouseCallback(window_name_raw, mouse_callback, NULL);
 
-
-    cv::Point2i pt1(-1,-1), pt2(-1,-1);
-    std::vector<cv::Point2i> selectedPoints;
-    selectedPoints.push_back(pt1);
-    selectedPoints.push_back(pt2);
+    cv::Point2i pt(-1,-1);
     const auto window_name = "Display Image";
     namedWindow(window_name, WINDOW_AUTOSIZE);
     
@@ -148,129 +132,58 @@ int main(int argc, char const *argv[]) try
     
 
     std::ofstream out;
-    std::ofstream depthFile;
 
     int i = 0;
-    float distance1, distance2;
-    imageParams imageParams_;
+    float distance;
+    bool firstRun = true;
+    // imageParams imageParams_;
     
-    // rs2::frame_queue queue(2);
-    rs2::frame_queue postprocessed_frames;
+    rs2::frame_queue queue(2);
 
     // Apply filters
     // rs2::decimation_filter dec_filter;
-    rs2::decimation_filter dec_filter;
     rs2::threshold_filter thres_filter;
     rs2::spatial_filter spat_filter;
     rs2::temporal_filter tempo_filter;
 
-    dec_filter.set_option(RS2_OPTION_FILTER_MAGNITUDE, 2);
     thres_filter.set_option(RS2_OPTION_MIN_DISTANCE, 0.66f);
     thres_filter.set_option(RS2_OPTION_MAX_DISTANCE, 0.8f);
     spat_filter.set_option(RS2_OPTION_FILTER_MAGNITUDE, 2);
     spat_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.59f);
     spat_filter.set_option(RS2_OPTION_FILTER_SMOOTH_DELTA, 5.0f);
+    // spat_filter.set_option(RS2_OPTION_FILTER_OPTION, 4);
     tempo_filter.set_option(RS2_OPTION_FILTER_SMOOTH_ALPHA, 0.12f);
     tempo_filter.set_option(RS2_OPTION_FILTER_SMOOTH_DELTA, 69.0f);
-    bool alive = true;
-
-    std::thread video_processing_thread([&]() {
-        // In order to generate new composite frames, we have to wrap the processing
-        // code in a lambda
-        rs2::processing_block frame_processor(
-            [&](rs2::frameset data,        // Input frameset (from the pipeline)
-                rs2::frame_source &source) // Frame pool that can allocate new frames
-            {
-                // First make the frames spatially aligned
-
-                // Next, apply depth post-processing
-                rs2::frame depth = data.get_depth_frame();
-                // Decimation will reduce the resultion of the depth image,
-                // closing small holes and speeding-up the algorithm
-                depth = dec_filter.process(depth);
-                // To make sure far-away objects are filtered proportionally
-                // we try to switch to disparity domain
-                // depth = depth2disparity.process(depth);
-                depth = thres_filter.process(depth);
-                // Apply spatial filtering
-                depth = spat_filter.process(depth);
-                // Apply temporal filtering
-                depth = tempo_filter.process(depth);
-                // If we are in disparity domain, switch back to depth
-                // depth = disparity2depth.process(depth);
-
-                //checking the size before align process, due to decmiation set to 2, it will redcue the size as 1/2
-                float width = depth.as<rs2::video_frame>().get_width();
-                float height = depth.as<rs2::video_frame>().get_height();
-
-                auto color = data.get_color_frame();
-                rs2::frameset combined = source.allocate_composite_frame({depth, color});
-                combined = align.process(combined);
-
-                //checking the size after align process, the size align to color 640*480
-                width = combined.get_depth_frame().as<rs2::video_frame>().get_width();
-                height = combined.get_depth_frame().as<rs2::video_frame>().get_height();
-
-                source.frame_ready(combined);
-            });
-        // Indicate that we want the results of frame_processor
-        // to be pushed into postprocessed_frames queue
-        frame_processor >> postprocessed_frames;
-
-        while (alive)
-        {
-            // Fetch frames from the pipeline and send them for processing
-            rs2::frameset fs = pipe.wait_for_frames();
-            if (fs.size() != 0)
-                frame_processor.invoke(fs);
-        }
-    });
+    
 
     while (1)
     {
-        bool towelGrabable = false;
         // Read TCP/IP buffer
-        char buffer[1024] = {0};
+        char buffer[1024] = {0}; 
         valread = read(new_socket, buffer, 1024);
         printf("%s\n", buffer);
-
-        // Restart while loop if buffer doesn't contain correct message
-        if (strcmp(buffer, "~1;") != 0)
-            continue;
+        
+        // Restart while loop if buffer doesn't contain correct message 
+        // if (strcmp(buffer, "~1;") != 0) 
+        //     continue;
         std::cout << "Got past!" << std::endl;
-        sleep(1); // Wait until towel settles
+        waitKey(800); // Wait until towel settles
 
-        // Using the align object, we block the application until a frameset is available
+        rs2::frameset data = pipe.wait_for_frames(); // Wait for next set of frames from the camera
+        rs2::frameset processed = align.process(data);
+        rs2::video_frame other_frame = processed.first(align_to);
+        rs2::depth_frame aligned_depth_frame = processed.get_depth_frame();
+        rs2::frame color = data.get_color_frame();
+        rs2::frame depth = data.get_depth_frame().apply_filter(color_map);
 
-        static rs2::frameset frameset;
-        postprocessed_frames.poll_for_frame(&frameset);
-
-        if (frameset.size() == 0)
-			continue;
-
-        //Get processed aligned frame
-        rs2::video_frame other_frame = frameset.get_color_frame();
-        rs2::depth_frame aligned_depth_frame = frameset.get_depth_frame();
-
-        float width = aligned_depth_frame.get_width();
-        float height = aligned_depth_frame.get_height();
-
-        //If one of them is unavailable, continue iteration
         if (!aligned_depth_frame || !other_frame)
         {
             continue;
         }
-
-        rs2::frameset data = pipe.wait_for_frames(); // Wait for next set of frames from the camera
-        // rs2::frameset processed = align.process(data);
-        // rs2::video_frame other_frame = processed.first(align_to);
-        // rs2::depth_frame aligned_depth_frame = processed.get_depth_frame();
-        rs2::frame color = data.get_color_frame();
-        rs2::frame depth = data.get_depth_frame().apply_filter(color_map);
-
         remove_background(other_frame, aligned_depth_frame, depth_scale, depth_clipping_distance);
 
-        // // Query frame size (width and height)
+
+        // Query frame size (width and height)
         const int w = depth.as<rs2::video_frame>().get_width();
         const int h = depth.as<rs2::video_frame>().get_height();
 
@@ -281,121 +194,77 @@ int main(int argc, char const *argv[]) try
         const int hO = other_frame.as<rs2::video_frame>().get_height();
 
         // Create OpenCV matrix of size (w,h) from the colorized depth data
-        Mat image(Size(w, h), CV_8UC3, (void *)depth.get_data(), Mat::AUTO_STEP);
-        Mat imageColor(Size(wC, hC), CV_8UC3, (void *)color.get_data(), Mat::AUTO_STEP);
-        Mat imageFiltered(Size(wO, hO), CV_8UC3, (void *)other_frame.get_data(), Mat::AUTO_STEP);
+        Mat image(Size(w, h), CV_8UC3, (void*)depth.get_data(), Mat::AUTO_STEP);
+        Mat imageColor(Size(wC, hC), CV_8UC3, (void*)color.get_data(), Mat::AUTO_STEP);
+        Mat imageFiltered(Size(wO, hO), CV_8UC3, (void*)other_frame.get_data(), Mat::AUTO_STEP);
 
         // Update the window with new data
         // imageParams_.img = image;
         imshow(window_name, imageFiltered);
-        setMouseCallback(window_name, mouse_callback, (void*)&selectedPoints);
-
+        setMouseCallback(window_name, mouse_callback, &pt); 
+        // if (firstRun)
         waitKey(0);
 
-        distance1 = aligned_depth_frame.get_distance(selectedPoints[0].x, selectedPoints[0].y);
-        distance2 = aligned_depth_frame.get_distance(selectedPoints[1].x, selectedPoints[1].y);
-
-
-        std::string filenameD;
-        std::string filenameC;
-        std::string filenameF;
-        std::string filenameRawDepth;
-        std::string filenameRawColor;
-        std::string filenameRawFiltered;
-
-        out.open("../images/result.txt", std::ios::app);
-        depthFile.open("../images/depth.txt", std::ios::app);
+        out.open("../result.txt", std::ios::app);
         if (newCoords)
         {
-            filenameD = "/home/laus/uni/thesis/TowelCam/images/True/depth" + std::to_string(i) + ".png";
-            filenameC = "/home/laus/uni/thesis/TowelCam/images/True/color" + std::to_string(i) + ".png";
-            filenameF = "/home/laus/uni/thesis/TowelCam/images/True/filtered" + std::to_string(i) + ".png";
-            filenameRawDepth = "/home/laus/uni/thesis/TowelCam/images/True/RawDepth" + std::to_string(i) + ".bin";
-            filenameRawColor = "/home/laus/uni/thesis/TowelCam/images/True/RawColor" + std::to_string(i) + ".bin";
-            filenameRawFiltered = "/home/laus/uni/thesis/TowelCam/images/True/RawFiltered" + std::to_string(i) + ".bin";
+            distance = data.get_depth_frame().get_distance(pt.x, pt.y);
+            pt3d.x = pt.x;
+            pt3d.y = pt.y;
+            pt3d.z = distance;
 
-
-
-            std::cout << "i: " << i << " - Good towel!" << std::endl;
-
-            imageParams_.x1 = selectedPoints[0].x;
-            imageParams_.y1 = selectedPoints[0].y;
-            imageParams_.z1 = distance1;
-            imageParams_.x2 = selectedPoints[1].x;
-            imageParams_.y2 = selectedPoints[1].y;
-            imageParams_.z2 = distance2;
-
-            std::cout << imageParams_.x1 << "," << imageParams_.y1 << "," << imageParams_.x2 << "," << imageParams_.y2 << std::endl;
-            out << filenameF << ",";
-            out << imageParams_.x1 << ",";
-            out << imageParams_.y1 << ",";
-            out << imageParams_.x2 << ",";
-            out << imageParams_.y2 << ",";
-            out << "True";
+            std::cout << i << pt3d << std::endl;
+            out << "Frame," << i;
+            out << "\nx," << pt.x;
+            out << "\ny," << pt.y;
+            out << "\nz," << distance;
             out << "\n";
-
-            depthFile << filenameF << ",";
-            depthFile << imageParams_.x1 << ",";
-            depthFile << imageParams_.y1 << ",";
-            depthFile << imageParams_.z1 << ",";
-            depthFile << imageParams_.x2 << ",";
-            depthFile << imageParams_.y2 << ",";
-            depthFile << imageParams_.z2 << ",";
-            depthFile << "True";
-            depthFile << "\n";
 
             newCoords = false;
+
         }
-        else
+        else //if (!firstRun)
         {
-            // towelGrabable = false;
-            filenameD = "/home/laus/uni/thesis/TowelCam/images/False/depth" + std::to_string(i) + ".png";
-            filenameC = "/home/laus/uni/thesis/TowelCam/images/False/color" + std::to_string(i) + ".png";
-            filenameF = "/home/laus/uni/thesis/TowelCam/images/False/filtered" + std::to_string(i) + ".png";
-            filenameRawDepth = "/home/laus/uni/thesis/TowelCam/images/False/RawDepth" + std::to_string(i) + ".bin";
-            filenameRawColor = "/home/laus/uni/thesis/TowelCam/images/False/RawColor" + std::to_string(i) + ".bin";
-            filenameRawFiltered = "/home/laus/uni/thesis/TowelCam/images/False/RawFiltered" + std::to_string(i) + ".bin";
-
-
-            std::cout << "i: " << i << " - Bad towel!" << std::endl;
-            out << filenameF << ",";
-            out << 630 << ",";
-            out << 470 << ",";
-            out << 639 << ",";
-            out << 439 << ",";
-            out << "False";
+            std::cout << i << "Bad towel!" << std::endl;
+            out << "Frame," << i;
+            out << "\nx," << -1;
+            out << "\ny," << -1;
+            out << "\nz," << -1;
             out << "\n";
-
-            depthFile << filenameF << ",";
-            depthFile << 630 << ",";
-            depthFile << 470 << ",";
-            depthFile << 0 << ",";
-            depthFile << 639 << ",";
-            depthFile << 439 << ",";
-            depthFile << 0 << ",";
-            depthFile << "False";
-            depthFile << "\n";
         }
         out.close();
-        depthFile.close();
-        
+        firstRun = false;
+
+        std::string filenameD = "/home/laus/uni/thesis/TowelCam/images/depth" + std::to_string(i) + ".png";
         imwrite(filenameD, image);
+        std::string filenameC = "/home/laus/uni/thesis/TowelCam/images/color" + std::to_string(i) + ".png";
         imwrite(filenameC, imageColor);
+        std::string filenameF = "/home/laus/uni/thesis/TowelCam/images/filtered" + std::to_string(i) + ".png";
         imwrite(filenameF, imageFiltered);
+
+        std::string filenameRawDepth = "/home/laus/uni/thesis/TowelCam/images/RawDepth" + std::to_string(i) + ".bin";
         saveFrameRawData(filenameRawDepth, depth);
+        std::string filenameRawColor = "/home/laus/uni/thesis/TowelCam/images/RawColor" + std::to_string(i) + ".bin";
         saveFrameRawData(filenameRawColor, color);
+        std::string filenameRawFiltered = "/home/laus/uni/thesis/TowelCam/images/RawFiltered" + std::to_string(i) + ".bin";
         saveFrameRawData(filenameRawFiltered, other_frame);
 
         i++;
 
+        // cv::Mat image_infra(cv::Size(848, 480), CV_8UC1, (void *)data.get_infrared_frame().get_data(), cv::Mat::AUTO_STEP);
+        // if(!depth) continue;
+        // cv::cvtColor(image_infra, image_infra, CV_GRAY2BGR);
+
+        // cv::imshow(window_name_raw, image_infra);
+
+        // waitKey(0);
+        
         destroyAllWindows();
     }
-    alive = false;
-    video_processing_thread.join();
 
     return EXIT_SUCCESS;
 }
-catch (const rs2::error &e)
+catch (const rs2::error & e)
 {
     std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
     return EXIT_FAILURE;
@@ -483,7 +352,7 @@ void remove_background(rs2::video_frame& other_frame, const rs2::depth_frame& de
     int height = other_frame.get_height();
     int other_bpp = other_frame.get_bytes_per_pixel();
 
-#pragma omp parallel for schedule(dynamic) //Using OpenMP to try to parallelise the loop
+    #pragma omp parallel for schedule(dynamic) //Using OpenMP to try to parallelise the loop
     for (int y = 0; y < height; y++)
     {
         auto depth_pixel_index = y * width;
