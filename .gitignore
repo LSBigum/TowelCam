@@ -1,7 +1,5 @@
 
 build/
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
-images/
+True/
+False/
+*.hdf5
