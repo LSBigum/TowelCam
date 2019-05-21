@@ -48,5 +48,6 @@
         "optional": "cpp",
         "string_view": "cpp",
         "system_error": "cpp"
-    }
+    },
+    "C_Cpp.default.configurationProvider": "go2sh.cmake-integration"
 }

@@ -3,3 +3,11 @@ build/
 True/
 False/
 *.hdf5
+
+images/False-backup/
+
+images/test/
+
+images/True-backup/
+
+*.zip
